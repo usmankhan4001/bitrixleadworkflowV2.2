@@ -5,13 +5,17 @@ import type { BitrixLead, BitrixTaskAddResult, BitrixUser } from "../types/bitri
 
 import { callBitrixGetMethod, callBitrixListMethod } from "./bitrixApi.js";
 
-const DEADLINE_DURATION_STRING = process.env.LEAD_DEADLINE_DURATION || "1 hour";
+const DEFAULT_DEADLINE_DURATION = "1 hour";
 
 const BUSINESS_START_HOUR = 10;
 const BUSINESS_END_HOUR = 18;
 const TARGET_TIMEZONE_OFFSET = 3;
 
-export default async function createTask(leadId: EntityId, userId: EntityId): Promise<EntityId | undefined> {
+export default async function createTask(
+    leadId: EntityId,
+    userId: EntityId,
+    deadlineDuration = DEFAULT_DEADLINE_DURATION
+): Promise<EntityId | undefined> {
     const leadData = await callBitrixGetMethod<BitrixLead>(
         "crm.lead.get",
         { ID: leadId },
@@ -30,9 +34,9 @@ export default async function createTask(leadId: EntityId, userId: EntityId): Pr
     const title = `${userName} Follow up on Lead ${leadTitle}`;
     const taskDescription =
         `Please reach out to the customer for the lead "${leadTitle}" ` +
-        `and update the CRM.\n You have ${DEADLINE_DURATION_STRING} to make contact.\n`;
+        `and update the CRM.\n You have ${deadlineDuration} to make contact.\n`;
 
-    const [amount = "1", unit = "hour"] = DEADLINE_DURATION_STRING.split(" ");
+    const [amount = "1", unit = "hour"] = deadlineDuration.split(" ");
     const nowInTarget = moment().utc().add(TARGET_TIMEZONE_OFFSET, "hours");
 
     let deadlineBase: moment.Moment;

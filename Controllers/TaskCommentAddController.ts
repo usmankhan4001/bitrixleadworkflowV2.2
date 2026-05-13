@@ -11,6 +11,7 @@ import createTaskForWorkflowManager from "../Bitrix24Helper/createTaskForWorkflo
 import { setResponsible } from "../Bitrix24Helper/handleOldValueOfResponsiblePerson.js";
 import changeTheStageOfLead from "../Bitrix24Helper/changeTheStageOfLead.js";
 import { resolveOverdueEscalation } from "../services/overdueEscalation.js";
+import { loadWorkflowConfig } from "../services/workflowConfig.js";
 import type { TaskCommentWebhookBody } from "../types/domain.js";
 
 function extractCrmEntityId(relatedEntity: string | string[]): string | null {
@@ -25,7 +26,8 @@ export default async function taskCommentAddController(
 ): Promise<Response> {
     console.log("--- TaskCommentAddController Initiated ---");
 
-    const workflowManager = process.env.WORKFLOW_MANAGER || "1";
+    const workflowConfig = await loadWorkflowConfig();
+    const workflowManager = workflowConfig.workflowManagerId;
     const commentId = req.body?.data?.FIELDS_AFTER?.ID;
     const taskId = req.body?.data?.FIELDS_AFTER?.TASK_ID;
 
@@ -55,7 +57,7 @@ export default async function taskCommentAddController(
             return res.status(200).send({ message: "Task responsible user is missing. No action taken." });
         }
 
-        const department = getDepartmentByUserId(responsibleId);
+        const department = await getDepartmentByUserId(responsibleId);
         console.log(`Responsible User's Department (for assignment index management): ${department}`);
 
         const commentText = String(await getCommentText(Number(taskId), Number(commentId)));
@@ -99,11 +101,11 @@ export default async function taskCommentAddController(
                 console.log(`Found next available user for assignment in ${department}: ${escalationDecision.assignedUserId}.`);
 
                 await updateResponsiblePerson(crmEntityId, escalationDecision.assignedUserId);
-                await createTask(crmEntityId, escalationDecision.assignedUserId);
+                await createTask(crmEntityId, escalationDecision.assignedUserId, workflowConfig.deadlines.sales);
                 await setResponsible(crmEntityId, escalationDecision.assignedUserId);
             } else {
                 await updateResponsiblePerson(crmEntityId, escalationDecision.assignedUserId);
-                await createTaskForWorkflowManager(crmEntityId, escalationDecision.assignedUserId);
+                await createTaskForWorkflowManager(crmEntityId, escalationDecision.assignedUserId, workflowConfig.deadlines.workflowManager);
                 await setResponsible(crmEntityId, escalationDecision.assignedUserId);
 
                 console.log(`No available users in ${department} for reassignment or lead has 2+ tasks. Lead ${crmEntityId} reassigned to Workflow Manager ${workflowManager} for manual handling.`);

@@ -11,6 +11,7 @@ This project exists because the default Bitrix24 automation rules are often not 
 - Create follow-up tasks for the assigned representative.
 - React to task comments such as task completion or overdue status.
 - Escalate unhandled leads to a workflow manager.
+- Provide an embedded Bitrix24 admin app for workflow configuration.
 
 ## Current Capabilities
 
@@ -24,9 +25,15 @@ This project exists because the default Bitrix24 automation rules are often not 
 
 ### Round-robin assignment
 
-- Uses local index state to cycle through the configured members of each team.
+- Uses persisted workflow configuration to cycle through the configured members of each team.
 - Updates the lead owner in Bitrix24.
 - Creates a follow-up task for the selected representative.
+
+### Admin configuration app
+
+- Serves an embedded React app at `/app`.
+- Restricts admin APIs to Bitrix24 administrators or IDs listed in `ADMIN_USER_IDS`.
+- Lets administrators manage teams, source routing, task deadlines, workflow manager assignment, and rotation indexes.
 
 ### Task-driven workflow updates
 
@@ -46,27 +53,22 @@ This project exists because the default Bitrix24 automation rules are often not 
 ```text
 .
 |-- Bitrix24AuthUtils/
-|   `-- Bitrix24AuthUtils.js
+|   `-- Bitrix24AuthUtils.ts
 |-- Bitrix24Helper/
-|   |-- changeTheStageOfLead.js
-|   |-- createTaskForSalesPerson.js
-|   |-- createTaskForWorkflowManager.js
-|   |-- getCommentText.js
-|   |-- getMoreLeadData.js
-|   |-- getTaskCountForLead.js
-|   |-- getTaskInfo.js
-|   |-- handlePersonsWithCompletedTask.js
-|   |-- handleSalesIndex.js
-|   `-- updateResponsiblePerson.js
+|   `-- *.ts
 |-- Constants/
-|   `-- SalesTeam.js
+|   `-- SalesTeam.ts
 |-- Controllers/
-|   |-- LeadAddController.js
-|   |-- TaskCommentAddController.js
-|   `-- leadChangeController.js
+|   `-- *.ts
+|-- frontend/
+|   `-- src/
 |-- routes/
-|   `-- routes.js
-|-- server.js
+|   `-- *.ts
+|-- services/
+|   `-- *.ts
+|-- types/
+|   `-- *.ts
+|-- server.ts
 `-- package.json
 ```
 
@@ -89,15 +91,23 @@ The service depends on environment variables for OAuth and workflow behavior.
 | `BITRIX_CLIENT_SECRET` | Bitrix24 app client secret. |
 | `BITRIX_REDIRECT_URI` | OAuth callback URI registered in Bitrix24. |
 | `WORKFLOW_MANAGER` | User ID used for final escalation and manual intervention. |
+| `ADMIN_USER_IDS` | Optional comma-separated Bitrix user IDs allowed to access admin APIs even if Bitrix admin detection fails. |
 
 ## Team Configuration
 
-The current sales queues are hardcoded in [Constants/SalesTeam.js](/C:/Users/Usman%20Khan%20-%20PCI/Downloads/Bitrix24LeadWorkFlow-main%20(2)/Bitrix24LeadWorkFlow-main/Constants/SalesTeam.js).
+Workflow configuration is persisted to `/mnt/data/workflowConfig.json`. On first run, the app seeds the file with the original queues:
 
 ```js
-export const SALES_TEAM = {
-  "Sales Executives": [25, 29, 133],
-  "Telly Sales": [113, 115, 167, 203]
+{
+  "teams": [
+    { "name": "Sales Executives", "memberIds": [25, 29, 133] },
+    { "name": "Telly Sales", "memberIds": [113, 115, 167, 203] }
+  ],
+  "sourceRouting": {
+    "excludedSourceIds": ["UC_NNO79X"],
+    "routes": [{ "sourceIds": ["WEBFORM", "1|FACEBOOK"], "department": "Telly Sales" }],
+    "defaultDepartment": "Sales Executives"
+  }
 };
 ```
 
@@ -106,6 +116,11 @@ export const SALES_TEAM = {
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/` | Health check and OAuth entry point. |
+| `GET` | `/app` | Embedded Bitrix24 admin app. |
+| `GET` | `/api/admin/me` | Resolve current admin access status. |
+| `GET` | `/api/admin/workflow-config` | Read workflow configuration and rotation indexes. |
+| `PUT` | `/api/admin/workflow-config` | Save workflow configuration. |
+| `PUT` | `/api/admin/workflow-config/indices` | Save rotation indexes. |
 | `POST` | `/bitrixworkflow/lead/add` | Process new lead events. |
 | `POST` | `/bitrixworkflow/task/comment/add` | Process task comment events. |
 | `POST` | `/bitrixworkflow/lead/change` | Process lead ownership changes. |
@@ -122,18 +137,30 @@ npm install
 npm start
 ```
 
-The server starts from [server.js](/C:/Users/Usman%20Khan%20-%20PCI/Downloads/Bitrix24LeadWorkFlow-main%20(2)/Bitrix24LeadWorkFlow-main/server.js) and exposes the webhook routes after Bitrix24 initialization succeeds.
+The server starts from [server.ts](/C:/Users/Usman%20Khan%20-%20PCI/Downloads/Bitrix24LeadWorkFlow-main%20(2)/Bitrix24LeadWorkFlow-main/server.ts) and exposes the webhook routes after Bitrix24 initialization succeeds.
+
+For frontend-only local work:
+
+```bash
+npm run dev:frontend
+```
+
+The Vite dev server proxies `/api` to `http://localhost:3000`.
+
+## Bitrix24 Embedded App Setup
+
+- Register the app URL as `https://your-host.example.com/app`.
+- Register the OAuth redirect URI as `https://your-host.example.com/auth/callback`.
+- Grant CRM, task, and user access scopes needed by the workflow and admin guard.
+- Add fallback administrators through `ADMIN_USER_IDS` if the portal admin flag is unavailable in your Bitrix environment.
 
 ## Known Gaps In The Current Codebase
 
 The current implementation is functional as a proof of concept, but it still carries a few operational and architectural constraints:
 
-- The workflow is implemented in JavaScript without type safety.
-- Team membership and role mapping are hardcoded.
+- Workflow configuration still uses local JSON storage.
 - State is stored locally through helper-managed files instead of a centralized datastore.
-- The Bitrix24 integration is not yet standardized around a single modern SDK pattern across the whole codebase.
-- There is no dedicated admin interface for managing rotations and assignments.
-- Tests, linting, and stronger validation are not yet in place.
+- Admin access depends on Bitrix user context plus the optional override list.
 
 ## Recommended Improvement Roadmap
 

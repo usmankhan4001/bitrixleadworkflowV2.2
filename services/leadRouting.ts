@@ -1,16 +1,17 @@
-import type { LeadRoutingDecision } from "../types/domain.js";
+import type { LeadRoutingDecision, WorkflowConfig } from "../types/domain.js";
 
-const EXCLUDED_SOURCE_ID = "UC_NNO79X";
-const TELLY_SALES_SOURCES = new Set(["WEBFORM", "1|FACEBOOK"]);
-
-export function resolveLeadRouting(sourceId?: string): LeadRoutingDecision {
-    if (sourceId === EXCLUDED_SOURCE_ID) {
+export function resolveLeadRouting(sourceId: string | undefined, config: WorkflowConfig): LeadRoutingDecision {
+    if (sourceId && config.sourceRouting.excludedSourceIds.includes(sourceId)) {
         return { kind: "skip" };
     }
 
-    if (sourceId && TELLY_SALES_SOURCES.has(sourceId)) {
-        return { kind: "assign", department: "Telly Sales" };
+    const matchedRoute = sourceId
+        ? config.sourceRouting.routes.find((route) => route.sourceIds.includes(sourceId))
+        : null;
+
+    if (matchedRoute) {
+        return { kind: "assign", department: matchedRoute.department };
     }
 
-    return { kind: "assign", department: "Sales Executives" };
+    return { kind: "assign", department: config.sourceRouting.defaultDepartment };
 }

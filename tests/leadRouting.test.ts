@@ -2,24 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { resolveLeadRouting } from "../services/leadRouting.js";
+import { DEFAULT_WORKFLOW_CONFIG } from "../services/workflowConfig.js";
 
 test("resolveLeadRouting skips excluded source", () => {
-    assert.deepEqual(resolveLeadRouting("UC_NNO79X"), { kind: "skip" });
+    assert.deepEqual(resolveLeadRouting("UC_NNO79X", DEFAULT_WORKFLOW_CONFIG), { kind: "skip" });
 });
 
 test("resolveLeadRouting routes telly sales sources", () => {
-    assert.deepEqual(resolveLeadRouting("WEBFORM"), {
+    assert.deepEqual(resolveLeadRouting("WEBFORM", DEFAULT_WORKFLOW_CONFIG), {
         kind: "assign",
         department: "Telly Sales",
     });
-    assert.deepEqual(resolveLeadRouting("1|FACEBOOK"), {
+    assert.deepEqual(resolveLeadRouting("1|FACEBOOK", DEFAULT_WORKFLOW_CONFIG), {
         kind: "assign",
         department: "Telly Sales",
     });
 });
 
 test("resolveLeadRouting defaults to sales executives", () => {
-    assert.deepEqual(resolveLeadRouting("SOMETHING_ELSE"), {
+    assert.deepEqual(resolveLeadRouting("SOMETHING_ELSE", DEFAULT_WORKFLOW_CONFIG), {
         kind: "assign",
         department: "Sales Executives",
     });

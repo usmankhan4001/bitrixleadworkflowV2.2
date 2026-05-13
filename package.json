@@ -5,7 +5,10 @@
   "main": "dist/server.js",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && vite build --config frontend/vite.config.ts",
+    "build:server": "tsc -p tsconfig.json",
+    "build:frontend": "vite build --config frontend/vite.config.ts",
+    "dev:frontend": "vite --config frontend/vite.config.ts --host 0.0.0.0",
     "lint": "eslint .",
     "prestart": "npm run build",
     "test": "tsx --test tests/**/*.test.ts",
@@ -20,7 +23,10 @@
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "fs-extra": "^11.3.2",
-    "moment-timezone": "^0.6.0"
+    "lucide-react": "^1.14.0",
+    "moment-timezone": "^0.6.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -28,9 +34,13 @@
     "@types/express": "^5.0.6",
     "@types/fs-extra": "^11.0.4",
     "@types/node": "^25.7.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.39.1",
     "tsx": "^4.20.6",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.46.2",
-    "typescript": "^6.0.3"
+    "vite": "^8.0.12"
   }
 }

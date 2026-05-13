@@ -1,11 +1,15 @@
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import fs from "fs";
+import path from "path";
 
 import { getAuthorizationUrl, handleOAuthRedirect, initB24 } from "./Bitrix24AuthUtils/Bitrix24AuthUtils.js";
+import adminRoutes from "./routes/adminRoutes.js";
 import bitrixRoutes from "./routes/routes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const frontendDistPath = path.join(process.cwd(), "frontend", "dist");
 
 app.use(cors({
     origin: [
@@ -42,6 +46,13 @@ app.get("/", (_req: Request, res: Response) => {
     return res.send("Bitrix24 Integration Server is Running but Awaiting Authorization.");
 });
 
+if (fs.existsSync(frontendDistPath)) {
+    app.use("/app", express.static(frontendDistPath));
+    app.get(/^\/app(?:\/.*)?$/, (_req: Request, res: Response) => {
+        res.sendFile(path.join(frontendDistPath, "index.html"));
+    });
+}
+
 app.get("/auth/callback", async (req: Request, res: Response) => {
     if (req.query.error || req.query.error_description) {
         const error = String(req.query.error_description || req.query.error || "Unknown error during authorization.");
@@ -72,6 +83,7 @@ app.get("/auth/callback", async (req: Request, res: Response) => {
     }
 });
 
+app.use("/api/admin", requireB24, adminRoutes);
 app.use("/bitrixworkflow", requireB24, bitrixRoutes);
 
 app.listen(PORT, async () => {
