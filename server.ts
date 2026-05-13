@@ -3,7 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import fs from "fs";
 import path from "path";
 
-import { getAuthorizationUrl, handleOAuthRedirect, initB24 } from "./Bitrix24AuthUtils/Bitrix24AuthUtils.js";
+import { getAuthorizationUrl, handleOAuthRedirect, hasBitrixOAuthConfig, initB24 } from "./Bitrix24AuthUtils/Bitrix24AuthUtils.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import bitrixRoutes from "./routes/routes.js";
 
@@ -97,6 +97,11 @@ app.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
 
     try {
+        if (!hasBitrixOAuthConfig()) {
+            console.warn("Bitrix OAuth environment variables are missing. Set BITRIX_CLIENT_ID and BITRIX_CLIENT_SECRET in Dokploy before authorizing the app.");
+            return;
+        }
+
         const b24Instance = await initB24();
         if (!b24Instance) {
             console.log(`Open this URL to authorize the app: ${getAuthorizationUrl()}`);

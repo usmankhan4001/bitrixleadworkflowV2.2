@@ -24,6 +24,10 @@ function getOauthSecret(): { clientId: string; clientSecret: string } {
     };
 }
 
+export function hasBitrixOAuthConfig(): boolean {
+    return Boolean(process.env.BITRIX_CLIENT_ID && process.env.BITRIX_CLIENT_SECRET);
+}
+
 function requireOAuthField<T>(value: T | undefined, fieldName: string): T {
     if (typeof value === "undefined") {
         throw new Error(`Bitrix OAuth response is missing ${fieldName}`);
