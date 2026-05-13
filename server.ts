@@ -46,6 +46,13 @@ app.get("/", (_req: Request, res: Response) => {
     return res.send("Bitrix24 Integration Server is Running but Awaiting Authorization.");
 });
 
+app.get("/healthz", (_req: Request, res: Response) => {
+    return res.status(200).send({
+        ok: true,
+        b24Initialized: isB24Initialized,
+    });
+});
+
 if (fs.existsSync(frontendDistPath)) {
     app.use("/app", express.static(frontendDistPath));
     app.get(/^\/app(?:\/.*)?$/, (_req: Request, res: Response) => {

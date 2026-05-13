@@ -356,6 +356,214 @@ npm start
 
 Make sure the deployment environment has writable `/mnt/data` storage. If the host does not provide durable `/mnt/data`, configure equivalent persistent storage before using the app in production.
 
+## Dokploy With Cloudflare Tunnel
+
+This project is ready to deploy as a single Dockerized Dokploy application. The same container serves:
+
+- Express backend routes.
+- Bitrix webhook endpoints.
+- OAuth callback.
+- Embedded React admin app at `/app`.
+
+Because this setup uses Cloudflare Tunnel for the whole server, route the public domain through `cloudflared` to the local Dokploy-published port instead of relying on Traefik.
+
+### 1. Choose the public hostname
+
+Use a dedicated hostname for Bitrix24, for example:
+
+```text
+https://bitrix.yourdomain.com
+```
+
+Even if your tunnel already supports a wildcard route, create an explicit Cloudflare Tunnel public hostname for this app. It makes OAuth and webhook debugging much easier.
+
+### 2. Configure Cloudflare Tunnel
+
+In Cloudflare Zero Trust, open the existing tunnel and add a public hostname:
+
+| Setting | Value |
+|---|---|
+| Subdomain | `bitrix` |
+| Domain | `yourdomain.com` |
+| Service type | `HTTP` |
+| Service URL | `localhost:3100` |
+
+Cloudflare will terminate public HTTPS and forward traffic through the tunnel to the local Dokploy app binding.
+
+Avoid Cloudflare Access on this hostname unless you add bypass rules for Bitrix-facing paths. Bitrix24 must be able to reach:
+
+- `/auth/callback`
+- `/bitrixworkflow/*`
+- `/app`
+- `/api/admin/*`
+
+### 3. Create the Dokploy application
+
+In Dokploy:
+
+| Setting | Value |
+|---|---|
+| Source | GitHub repository |
+| Repository | `usmankhan4001/bitrixleadworkflowV2.2` |
+| Branch | `main` |
+| Build type | Dockerfile |
+| Container port | `3000` |
+| Local host binding | `127.0.0.1:3100` |
+
+Add a persistent volume:
+
+| Volume | Container path |
+|---|---|
+| `bitrix-lead-workflow-data` | `/mnt/data` |
+
+The volume is important. It stores OAuth tokens, workflow config, rotation indexes, and workflow state.
+
+### 4. Add Dokploy environment variables
+
+```env
+PORT=3000
+BITRIX_CLIENT_ID=your_bitrix_client_id
+BITRIX_CLIENT_SECRET=your_bitrix_client_secret
+BITRIX_REDIRECT_URI=https://bitrix.yourdomain.com/auth/callback
+WORKFLOW_MANAGER=1
+ADMIN_USER_IDS=1,25
+```
+
+`ADMIN_USER_IDS` should include your Bitrix user ID and any trusted fallback administrator IDs. `WORKFLOW_MANAGER` seeds the initial config only; afterward it can be changed from the embedded admin app.
+
+### 5. Deploy and verify the container
+
+Trigger the Dokploy deployment. After it starts, verify the local binding from the server:
+
+```bash
+curl http://localhost:3100/healthz
+```
+
+Then verify the public hostname:
+
+```text
+https://bitrix.yourdomain.com/healthz
+```
+
+Expected response:
+
+```json
+{
+  "ok": true,
+  "b24Initialized": false
+}
+```
+
+`b24Initialized` is `false` until OAuth authorization is complete.
+
+### 6. Authorize Bitrix OAuth
+
+Open the Dokploy app logs. If no token exists yet, the app logs a Bitrix authorization URL.
+
+Open that URL as a Bitrix administrator. Bitrix should redirect back to:
+
+```text
+https://bitrix.yourdomain.com/auth/callback
+```
+
+The app saves tokens to:
+
+```text
+/mnt/data/b24_tokens.json
+```
+
+After authorization, the service exits intentionally so it can restart and load the saved token state. Dokploy should restart the app automatically.
+
+Confirm:
+
+```text
+https://bitrix.yourdomain.com/
+```
+
+Expected result:
+
+```text
+Bitrix24 Integration Server is Running and Authorized.
+```
+
+### 7. Configure the Bitrix24 embedded app
+
+In Bitrix24 local app settings:
+
+| Setting | Value |
+|---|---|
+| Application URL | `https://bitrix.yourdomain.com/app` |
+| OAuth callback URL | `https://bitrix.yourdomain.com/auth/callback` |
+
+Grant the required scopes:
+
+- CRM
+- Tasks
+- Users
+
+Open the app from Bitrix24 and confirm the admin UI loads. If admin detection is unavailable in your Bitrix context, make sure your user ID is listed in `ADMIN_USER_IDS`.
+
+### 8. Configure Bitrix24 webhooks
+
+Register these webhook URLs:
+
+| Event | URL |
+|---|---|
+| Lead add | `https://bitrix.yourdomain.com/bitrixworkflow/lead/add` |
+| Task comment add | `https://bitrix.yourdomain.com/bitrixworkflow/task/comment/add` |
+| Lead change | `https://bitrix.yourdomain.com/bitrixworkflow/lead/change` |
+
+The webhook handlers return `200 OK` so Bitrix24 does not retry already-handled events.
+
+### 9. Configure workflow in the app
+
+Open:
+
+```text
+https://bitrix.yourdomain.com/app
+```
+
+Configure:
+
+- Teams and Bitrix user IDs.
+- Excluded source IDs.
+- Source-to-team routing.
+- Default queue.
+- Sales task deadline.
+- Workflow manager deadline.
+- Workflow manager user ID.
+- Round-robin indexes if a reset is needed.
+
+Saved config is written to:
+
+```text
+/mnt/data/workflowConfig.json
+```
+
+### 10. Production smoke test
+
+After deployment and Bitrix setup:
+
+1. Create a test lead in Bitrix24 with a known source.
+2. Confirm the lead owner changes to the expected queue member.
+3. Confirm a follow-up task is created.
+4. Complete the task and confirm the lead moves to `IN_PROCESS`.
+5. Trigger overdue behavior and confirm reassignment or workflow manager escalation.
+6. Confirm `/mnt/data/sales_indices.json` updates and survives redeploys.
+
+### Dokploy acceptance checklist
+
+- `https://bitrix.yourdomain.com/` returns server status.
+- `https://bitrix.yourdomain.com/healthz` returns JSON health status.
+- `https://bitrix.yourdomain.com/app` loads the admin UI.
+- OAuth callback saves `/mnt/data/b24_tokens.json`.
+- Dokploy volume survives app redeploys.
+- Admin user can read and save workflow config.
+- Non-admin user receives `403` from admin APIs.
+- Bitrix webhook events return `200 OK`.
+- Lead assignment follows the admin-managed config.
+- Round-robin indexes persist after container restart.
+
 ## Operational Workflow
 
 1. Deploy the service and configure Bitrix OAuth credentials.
