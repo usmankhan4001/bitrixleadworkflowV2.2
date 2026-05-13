@@ -46,6 +46,14 @@ app.get("/", (_req: Request, res: Response) => {
     return res.send("Bitrix24 Integration Server is Running but Awaiting Authorization.");
 });
 
+app.post("/", (_req: Request, res: Response) => {
+    if (fs.existsSync(frontendDistPath)) {
+        return res.redirect(303, "/app");
+    }
+
+    return res.status(405).send("Application UI is not available yet. Build the frontend or open /auth/callback for OAuth.");
+});
+
 app.get("/healthz", (_req: Request, res: Response) => {
     return res.status(200).send({
         ok: true,
@@ -55,7 +63,7 @@ app.get("/healthz", (_req: Request, res: Response) => {
 
 if (fs.existsSync(frontendDistPath)) {
     app.use("/app", express.static(frontendDistPath));
-    app.get(/^\/app(?:\/.*)?$/, (_req: Request, res: Response) => {
+    app.all(/^\/app(?:\/.*)?$/, (_req: Request, res: Response) => {
         res.sendFile(path.join(frontendDistPath, "index.html"));
     });
 }
