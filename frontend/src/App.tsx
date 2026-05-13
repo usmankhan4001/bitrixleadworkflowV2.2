@@ -56,6 +56,21 @@ function parseMemberIds(value: string): EntityId[] {
     return splitList(value).map((item) => (/^\d+$/.test(item) ? Number(item) : item));
 }
 
+function isWorkflowConfigView(value: unknown): value is WorkflowConfigView {
+    if (!value || typeof value !== "object") {
+        return false;
+    }
+
+    const candidate = value as Partial<WorkflowConfigView>;
+    return Array.isArray(candidate.teams)
+        && typeof candidate.sourceRouting === "object"
+        && candidate.sourceRouting !== null
+        && typeof candidate.deadlines === "object"
+        && candidate.deadlines !== null
+        && typeof candidate.roundRobinIndices === "object"
+        && candidate.roundRobinIndices !== null;
+}
+
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
     const response = await fetch(url, {
         headers: {
@@ -85,7 +100,10 @@ export default function App() {
             try {
                 const adminAccess = await requestJson<AdminAccess>("/api/admin/me");
                 setAccess(adminAccess);
-                const workflowConfig = await requestJson<WorkflowConfigView>("/api/admin/workflow-config");
+                const workflowConfig = await requestJson<unknown>("/api/admin/workflow-config");
+                if (!isWorkflowConfigView(workflowConfig)) {
+                    throw new Error("Workflow configuration is unavailable. Complete Bitrix authorization and reload the app.");
+                }
                 setConfig(workflowConfig);
                 setStatus("Ready");
             } catch (loadError) {

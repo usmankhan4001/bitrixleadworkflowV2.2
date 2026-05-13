@@ -28,7 +28,7 @@ app.use(express.urlencoded({ extended: true }));
 
 let isB24Initialized = false;
 
-const requireB24 = (_req: Request, res: Response, next: NextFunction): void => {
+const requireB24ForWebhook = (_req: Request, res: Response, next: NextFunction): void => {
     if (isB24Initialized) {
         next();
         return;
@@ -36,6 +36,17 @@ const requireB24 = (_req: Request, res: Response, next: NextFunction): void => {
 
     console.warn("Webhook received but B24 instance is not ready. Skipping processing.");
     res.status(200).send({ message: "B24 not initialized, skipping webhook." });
+};
+
+const requireB24ForAdmin = (_req: Request, res: Response, next: NextFunction): void => {
+    if (isB24Initialized) {
+        next();
+        return;
+    }
+
+    res.status(503).send({
+        message: "Bitrix24 authorization is not complete yet. Finish OAuth authorization, then reload the app.",
+    });
 };
 
 app.get("/", (_req: Request, res: Response) => {
@@ -98,8 +109,8 @@ app.get("/auth/callback", async (req: Request, res: Response) => {
     }
 });
 
-app.use("/api/admin", requireB24, adminRoutes);
-app.use("/bitrixworkflow", requireB24, bitrixRoutes);
+app.use("/api/admin", requireB24ForAdmin, adminRoutes);
+app.use("/bitrixworkflow", requireB24ForWebhook, bitrixRoutes);
 
 app.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
