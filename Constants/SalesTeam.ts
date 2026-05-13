@@ -8,8 +8,9 @@ export type DepartmentName = keyof typeof SALES_TEAM;
 export default function getDepartmentByUserId(userId: string | number): DepartmentName | null {
     const normalizedUserId = String(userId);
 
-    for (const [department, ids] of Object.entries(SALES_TEAM) as [DepartmentName, readonly number[]][]) {
-        if (ids.map(String).includes(normalizedUserId)) {
+    for (const department of Object.keys(SALES_TEAM) as DepartmentName[]) {
+        const ids = SALES_TEAM[department];
+        if (ids.some((id) => String(id) === normalizedUserId)) {
             return department;
         }
     }

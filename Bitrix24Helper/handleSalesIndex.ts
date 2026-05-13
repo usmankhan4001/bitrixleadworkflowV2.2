@@ -8,9 +8,10 @@ const SALES_INDEX_FILE = path.join("/mnt/data", "sales_indices.json");
 type SalesIndexState = Record<DepartmentName, number>;
 
 function createDefaultIndices(): SalesIndexState {
-    return Object.fromEntries(
-        Object.keys(SALES_TEAM).map((department) => [department, 0])
-    ) as SalesIndexState;
+    return {
+        "Sales Executives": 0,
+        "Telly Sales": 0,
+    };
 }
 
 async function loadAllIndices(): Promise<SalesIndexState> {

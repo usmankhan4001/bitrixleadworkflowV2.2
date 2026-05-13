@@ -1,10 +1,10 @@
 import fs from "fs/promises";
 
+import type { EntityId, WorkflowStateRecord } from "../types/domain.js";
+
 const STORAGE_PATH = "/mnt/data/leadResponsible.json";
 
-type LeadId = string | number;
-type ResponsibleId = string | number;
-type ResponsibleState = Record<string, ResponsibleId>;
+type ResponsibleState = WorkflowStateRecord<EntityId>;
 
 async function loadStorage(): Promise<ResponsibleState> {
     try {
@@ -28,14 +28,14 @@ async function saveStorage(storage: ResponsibleState): Promise<void> {
     }
 }
 
-export async function setResponsible(leadId: LeadId, responsibleId: ResponsibleId): Promise<void> {
+export async function setResponsible(leadId: EntityId, responsibleId: EntityId): Promise<void> {
     const storage = await loadStorage();
     storage[String(leadId)] = responsibleId;
     await saveStorage(storage);
     console.log(`Set lead ${leadId} -> responsible ${responsibleId}`);
 }
 
-export async function getResponsible(leadId: LeadId): Promise<ResponsibleId | null> {
+export async function getResponsible(leadId: EntityId): Promise<EntityId | null> {
     const storage = await loadStorage();
     return storage[String(leadId)] ?? null;
 }

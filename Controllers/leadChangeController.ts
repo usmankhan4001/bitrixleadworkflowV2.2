@@ -5,22 +5,10 @@ import getMoreLeadData from "../Bitrix24Helper/getMoreLeadData.js";
 import getTaskIdOfTheWFManager from "../Bitrix24Helper/getTaskIdOfTheWFManager.js";
 import completeTaskByTaskID from "../Bitrix24Helper/completeTaskByTaskID.js";
 import createTaskForSalesPerson from "../Bitrix24Helper/createTaskForSalesPerson.js";
-
-type LeadChangeWebhookBody = {
-    data?: {
-        FIELDS?: {
-            ID?: string | number;
-        };
-    };
-};
-
-type LeadChangeDetails = {
-    ASSIGNED_BY_ID?: string | number;
-    MODIFY_BY_ID?: string | number;
-};
+import type { LeadChangeWebhookBody } from "../types/domain.js";
 
 export default async function leadChangeController(
-    req: Request<unknown, unknown, LeadChangeWebhookBody>,
+    req: Request<Record<string, never>, unknown, LeadChangeWebhookBody>,
     res: Response
 ): Promise<Response> {
     console.log("leadChangeController called with the following data:", req.body);
@@ -32,7 +20,7 @@ export default async function leadChangeController(
 
     const workflowManager = String(process.env.WORKFLOW_MANAGER || 1);
     const oldResponsibleId = await getResponsible(leadId);
-    const moreLeadData = await getMoreLeadData(leadId) as LeadChangeDetails;
+    const moreLeadData = await getMoreLeadData(leadId);
     const newResponsibleId = moreLeadData.ASSIGNED_BY_ID;
     const lastModifiedById = moreLeadData.MODIFY_BY_ID;
 
@@ -49,7 +37,7 @@ export default async function leadChangeController(
             `Responsible person for lead ${leadId} changed from ${oldResponsibleId} to ${newResponsibleId} by user ${lastModifiedById}`
         );
 
-        const taskIds = await getTaskIdOfTheWFManager(leadId) as Array<string | number>;
+        const taskIds = await getTaskIdOfTheWFManager(leadId);
         console.log(`Fetching task id of the workflow manager: ${taskIds}`);
 
         for (const taskId of taskIds) {

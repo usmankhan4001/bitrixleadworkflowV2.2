@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 
 import getCommentText from "../Bitrix24Helper/getCommentText.js";
-import getDepartmentByUserId, { type DepartmentName } from "../Constants/SalesTeam.js";
+import getDepartmentByUserId from "../Constants/SalesTeam.js";
 import { addUserToCompleted, getFirstCompletedUser } from "../Bitrix24Helper/handlePersonsWithCompletedTask.js";
 import createTask from "../Bitrix24Helper/createTaskForSalesPerson.js";
 import getTaskInfo from "../Bitrix24Helper/getTaskInfo.js";
@@ -10,22 +10,8 @@ import updateResponsiblePerson from "../Bitrix24Helper/updateResponsiblePerson.j
 import createTaskForWorkflowManager from "../Bitrix24Helper/createTaskForWorkflowManager.js";
 import { setResponsible } from "../Bitrix24Helper/handleOldValueOfResponsiblePerson.js";
 import changeTheStageOfLead from "../Bitrix24Helper/changeTheStageOfLead.js";
-
-type TaskCommentWebhookBody = {
-    data?: {
-        FIELDS_AFTER?: {
-            ID?: string | number;
-            TASK_ID?: string | number;
-        };
-    };
-};
-
-type TaskDetails = {
-    deadline?: string;
-    responsibleId?: string | number;
-    title?: string;
-    ufCrmTask?: string | string[];
-};
+import { resolveOverdueEscalation } from "../services/overdueEscalation.js";
+import type { TaskCommentWebhookBody } from "../types/domain.js";
 
 function extractCrmEntityId(relatedEntity: string | string[]): string | null {
     const rawValue = Array.isArray(relatedEntity) ? relatedEntity[0] : relatedEntity;
@@ -34,7 +20,7 @@ function extractCrmEntityId(relatedEntity: string | string[]): string | null {
 }
 
 export default async function taskCommentAddController(
-    req: Request<unknown, unknown, TaskCommentWebhookBody>,
+    req: Request<Record<string, never>, unknown, TaskCommentWebhookBody>,
     res: Response
 ): Promise<Response> {
     console.log("--- TaskCommentAddController Initiated ---");
@@ -51,8 +37,7 @@ export default async function taskCommentAddController(
 
     try {
         console.log(`Fetching task info for TASK_ID: ${taskId}`);
-        const taskRelatedInfo = await getTaskInfo(taskId) as unknown as { _data?: { result?: { tasks?: TaskDetails[] } } };
-        const taskDetails = taskRelatedInfo?._data?.result?.tasks?.[0];
+        const taskDetails = await getTaskInfo(taskId);
 
         if (!taskDetails) {
             console.error(`ERROR: Could not retrieve task details for TASK_ID: ${taskId}`);
@@ -98,21 +83,28 @@ export default async function taskCommentAddController(
         } else if (commentText.includes("Task is overdue.")) {
             console.warn(`Comment indicates task ${taskId} is overdue. Initiating reassignment.`);
 
-            const taskCountForLead = await getTaskCountForLead(crmEntityId) as number;
+            const taskCountForLead = await getTaskCountForLead(crmEntityId);
             const userWithCompletedTask = department
-                ? await getFirstCompletedUser(department as DepartmentName)
+                ? await getFirstCompletedUser(department)
                 : null;
 
-            if (userWithCompletedTask && taskCountForLead < 2) {
-                console.log(`Found next available user for assignment in ${department}: ${userWithCompletedTask}.`);
+            const escalationDecision = resolveOverdueEscalation({
+                department,
+                taskCountForLead,
+                nextCompletedUser: userWithCompletedTask,
+                workflowManagerId: workflowManager,
+            });
 
-                await updateResponsiblePerson(crmEntityId, userWithCompletedTask);
-                await createTask(crmEntityId, userWithCompletedTask);
-                await setResponsible(crmEntityId, userWithCompletedTask);
+            if (escalationDecision.kind === "reassign-sales") {
+                console.log(`Found next available user for assignment in ${department}: ${escalationDecision.assignedUserId}.`);
+
+                await updateResponsiblePerson(crmEntityId, escalationDecision.assignedUserId);
+                await createTask(crmEntityId, escalationDecision.assignedUserId);
+                await setResponsible(crmEntityId, escalationDecision.assignedUserId);
             } else {
-                await updateResponsiblePerson(crmEntityId, workflowManager);
-                await createTaskForWorkflowManager(crmEntityId, workflowManager);
-                await setResponsible(crmEntityId, workflowManager);
+                await updateResponsiblePerson(crmEntityId, escalationDecision.assignedUserId);
+                await createTaskForWorkflowManager(crmEntityId, escalationDecision.assignedUserId);
+                await setResponsible(crmEntityId, escalationDecision.assignedUserId);
 
                 console.log(`No available users in ${department} for reassignment or lead has 2+ tasks. Lead ${crmEntityId} reassigned to Workflow Manager ${workflowManager} for manual handling.`);
             }
