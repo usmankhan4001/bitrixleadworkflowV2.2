@@ -1,103 +1,206 @@
 # Bitrix24 Lead Workflow
 
-Bitrix24 Lead Workflow is a Node.js middleware service that sits between Bitrix24 webhooks and your internal lead-handling process. It receives CRM and task events, applies custom routing logic, assigns leads in a round-robin pattern, creates follow-up tasks, and escalates stalled leads when manual attention is required.
+Bitrix24 Lead Workflow is a TypeScript-first workflow service and embedded Bitrix24 administration app for routing CRM leads across sales teams. It receives Bitrix24 CRM and task webhooks, assigns leads through configurable round-robin queues, creates follow-up tasks, escalates overdue work, and gives administrators a secure in-portal interface for changing workflow behavior without editing code.
 
-## Overview
+The project is designed for sales operations teams that need more control than standard Bitrix24 automation rules provide: source-based lead distribution, deterministic assignment queues, manager escalation, and a lightweight operational control panel embedded directly inside Bitrix24.
 
-This project exists because the default Bitrix24 automation rules are often not flexible enough for real-world sales operations. The current service helps teams:
+## What Was Built
 
-- Route leads by source.
-- Distribute leads across predefined sales queues.
-- Create follow-up tasks for the assigned representative.
-- React to task comments such as task completion or overdue status.
-- Escalate unhandled leads to a workflow manager.
-- Provide an embedded Bitrix24 admin app for workflow configuration.
+This codebase has been modernized in two major steps.
 
-## Current Capabilities
+### TypeScript backend foundation
 
-### Lead intake
+- Converted the remaining Bitrix helper modules from JavaScript to TypeScript.
+- Removed `allowJs` from `tsconfig.json`, making the repo TypeScript-first.
+- Added shared domain and Bitrix API types for webhook payloads, leads, tasks, comments, OAuth token state, and workflow configuration.
+- Replaced loose controller casts with typed helper return values.
+- Added ESLint and strict TypeScript checks to prevent new untyped patterns.
+- Added focused tests around lead routing, overdue escalation, admin access, and workflow configuration validation.
 
-- Accepts Bitrix24 webhook events for new leads at `/bitrixworkflow/lead/add`.
-- Fetches additional lead details before assignment.
-- Excludes leads from a specific source (`UC_NNO79X`).
-- Routes `WEBFORM` and `1|FACEBOOK` leads to the `Telly Sales` queue.
-- Routes other leads to the `Sales Executives` queue.
+### Embedded admin configuration app
 
-### Round-robin assignment
+- Added a React + Vite frontend served from the Express backend at `/app`.
+- Added administrator-only APIs under `/api/admin/*`.
+- Added Bitrix administrator access checks with an `ADMIN_USER_IDS` override list.
+- Moved round-robin configuration from hardcoded constants into `/mnt/data/workflowConfig.json`.
+- Added UI controls for teams, member user IDs, lead source routing, deadlines, workflow manager ID, and rotation indexes.
+- Updated the webhook flow so lead assignment uses the saved workflow configuration.
 
-- Uses persisted workflow configuration to cycle through the configured members of each team.
+## Core Capabilities
+
+### Lead intake and assignment
+
+Bitrix24 sends new lead events to:
+
+```text
+POST /bitrixworkflow/lead/add
+```
+
+The service then:
+
+- Reads the lead ID from the webhook payload.
+- Fetches full lead details from Bitrix24.
+- Checks the configured source routing rules.
+- Skips excluded sources.
+- Selects the correct sales queue.
+- Advances the queue's round-robin index.
 - Updates the lead owner in Bitrix24.
-- Creates a follow-up task for the selected representative.
+- Creates a follow-up task for the assigned user.
+- Persists the assigned responsible user for later handoff detection.
 
-### Admin configuration app
+### Task comment workflow
 
-- Serves an embedded React app at `/app`.
-- Restricts admin APIs to Bitrix24 administrators or IDs listed in `ADMIN_USER_IDS`.
-- Lets administrators manage teams, source routing, task deadlines, workflow manager assignment, and rotation indexes.
+Bitrix24 task comment events arrive at:
 
-### Task-driven workflow updates
+```text
+POST /bitrixworkflow/task/comment/add
+```
 
-- Accepts task comment webhooks at `/bitrixworkflow/task/comment/add`.
-- Detects when a follow-up task is closed and moves the lead to `IN_PROCESS`.
-- Detects overdue task comments and attempts reassignment.
-- Escalates the lead to `WORKFLOW_MANAGER` when reassignment is no longer possible.
+The controller reacts to two important task comment states:
 
-### Responsible-person tracking
+- `Task closed.`: marks the related lead as `IN_PROCESS` and records the user as available for future reassignment.
+- `Task is overdue.`: tries to reassign the lead to a completed/available salesperson, or escalates to the configured workflow manager when reassignment is no longer appropriate.
 
-- Accepts lead change webhooks at `/bitrixworkflow/lead/change`.
-- Tracks handoffs involving the workflow manager.
-- Completes the manager's reassignment task when ownership is changed manually.
+### Workflow manager handoff tracking
 
-## Project Structure
+Lead ownership changes arrive at:
+
+```text
+POST /bitrixworkflow/lead/change
+```
+
+When the workflow manager manually reassigns a lead, the service detects the handoff, completes the manager task, and creates a new salesperson follow-up task for the newly responsible user.
+
+### Embedded Bitrix24 admin app
+
+The admin interface is served at:
+
+```text
+GET /app
+```
+
+It is intended to be registered as a Bitrix24 embedded app URL. Administrators can manage:
+
+- Sales teams and Bitrix user IDs.
+- Source-to-team routing rules.
+- Excluded source IDs.
+- Default routing team.
+- Sales follow-up deadline.
+- Workflow manager escalation deadline.
+- Workflow manager user ID.
+- Current round-robin indexes, including reset.
+
+The UI is deliberately operational rather than marketing-oriented: compact, direct, and built for repeated use inside a CRM.
+
+## Architecture
 
 ```text
 .
 |-- Bitrix24AuthUtils/
 |   `-- Bitrix24AuthUtils.ts
 |-- Bitrix24Helper/
-|   `-- *.ts
-|-- Constants/
-|   `-- SalesTeam.ts
+|   |-- bitrixApi.ts
+|   |-- createTaskForSalesPerson.ts
+|   |-- createTaskForWorkflowManager.ts
+|   |-- getMoreLeadData.ts
+|   |-- getTaskInfo.ts
+|   `-- ...
 |-- Controllers/
-|   `-- *.ts
+|   |-- LeadAddController.ts
+|   |-- TaskCommentAddController.ts
+|   `-- leadChangeController.ts
 |-- frontend/
-|   `-- src/
+|   |-- src/
+|   |   |-- App.tsx
+|   |   |-- main.tsx
+|   |   `-- styles.css
+|   `-- vite.config.ts
 |-- routes/
-|   `-- *.ts
+|   |-- adminRoutes.ts
+|   `-- routes.ts
 |-- services/
-|   `-- *.ts
+|   |-- adminAccess.ts
+|   |-- leadRouting.ts
+|   |-- overdueEscalation.ts
+|   `-- workflowConfig.ts
+|-- tests/
 |-- types/
-|   `-- *.ts
 |-- server.ts
+|-- tsconfig.json
 `-- package.json
 ```
 
-## Request Flow
+### Server
 
-1. Bitrix24 sends a webhook to the Express server.
-2. The controller resolves lead or task context through Bitrix24 helper functions.
-3. Business rules determine the correct sales queue or escalation path.
-4. The service updates the lead owner, creates tasks, or changes the lead stage.
-5. The webhook returns `200 OK` so Bitrix24 does not keep retrying the same event.
+The Express server is the single runtime entrypoint. It handles:
 
-## Configuration
+- OAuth callback and Bitrix token initialization.
+- Webhook routes under `/bitrixworkflow`.
+- Admin API routes under `/api/admin`.
+- Static frontend delivery under `/app` after the frontend is built.
 
-The service depends on environment variables for OAuth and workflow behavior.
+### Bitrix helper layer
 
-| Variable | Description |
+The helper layer wraps Bitrix REST calls and returns typed domain objects instead of exposing raw SDK payloads to controllers. This keeps controller code focused on workflow behavior instead of response-shape plumbing.
+
+### Workflow services
+
+The service layer contains the decision logic:
+
+- `leadRouting.ts` resolves source-based assignment.
+- `overdueEscalation.ts` chooses reassignment vs manager escalation.
+- `workflowConfig.ts` loads, validates, saves, and exposes workflow configuration.
+- `adminAccess.ts` evaluates Bitrix administrator and override access.
+
+### Frontend
+
+The frontend is a Vite React app embedded into the same deployment. Production builds are emitted to:
+
+```text
+frontend/dist
+```
+
+The Express server serves this directory at `/app`.
+
+## Runtime Configuration
+
+The service uses environment variables for OAuth, deployment, and administrator overrides.
+
+| Variable | Required | Description |
+|---|---:|---|
+| `PORT` | No | HTTP server port. Defaults to `3000`. |
+| `BITRIX_CLIENT_ID` | Yes | Bitrix24 local app client/application ID. |
+| `BITRIX_CLIENT_SECRET` | Yes | Bitrix24 local app secret. |
+| `BITRIX_REDIRECT_URI` | Recommended | OAuth callback URL registered in Bitrix24. Defaults to `http://localhost:{PORT}/auth/callback`. |
+| `WORKFLOW_MANAGER` | No | Initial workflow manager user ID used when seeding default config. Defaults to `1`. |
+| `ADMIN_USER_IDS` | No | Comma-separated Bitrix user IDs allowed to access admin APIs even if Bitrix admin detection is unavailable. |
+
+Example:
+
+```env
+PORT=3000
+BITRIX_CLIENT_ID=local.XXXXXXXX
+BITRIX_CLIENT_SECRET=xxxxxxxxxxxxxxxx
+BITRIX_REDIRECT_URI=https://your-domain.example.com/auth/callback
+WORKFLOW_MANAGER=1
+ADMIN_USER_IDS=1,25
+```
+
+## Persisted Workflow State
+
+The project currently stores operational state in `/mnt/data`, matching the existing deployment assumptions.
+
+| File | Purpose |
 |---|---|
-| `PORT` | HTTP server port. Defaults to `3000`. |
-| `BITRIX_CLIENT_ID` | Bitrix24 app client ID. |
-| `BITRIX_CLIENT_SECRET` | Bitrix24 app client secret. |
-| `BITRIX_REDIRECT_URI` | OAuth callback URI registered in Bitrix24. |
-| `WORKFLOW_MANAGER` | User ID used for final escalation and manual intervention. |
-| `ADMIN_USER_IDS` | Optional comma-separated Bitrix user IDs allowed to access admin APIs even if Bitrix admin detection fails. |
+| `/mnt/data/b24_tokens.json` | Bitrix OAuth token state. |
+| `/mnt/data/workflowConfig.json` | Admin-managed routing, teams, deadlines, and workflow manager config. |
+| `/mnt/data/sales_indices.json` | Current round-robin index per team. |
+| `/mnt/data/leadResponsible.json` | Last known responsible user per lead. |
+| `/mnt/data/SalesPersonWithCompletedTask.json` | Users who completed tasks and can receive overdue reassignment. |
 
-## Team Configuration
+On first run, `workflowConfig.json` is seeded with:
 
-Workflow configuration is persisted to `/mnt/data/workflowConfig.json`. On first run, the app seeds the file with the original queues:
-
-```js
+```json
 {
   "teams": [
     { "name": "Sales Executives", "memberIds": [25, 29, 133] },
@@ -105,148 +208,186 @@ Workflow configuration is persisted to `/mnt/data/workflowConfig.json`. On first
   ],
   "sourceRouting": {
     "excludedSourceIds": ["UC_NNO79X"],
-    "routes": [{ "sourceIds": ["WEBFORM", "1|FACEBOOK"], "department": "Telly Sales" }],
+    "routes": [
+      { "sourceIds": ["WEBFORM", "1|FACEBOOK"], "department": "Telly Sales" }
+    ],
     "defaultDepartment": "Sales Executives"
-  }
-};
+  },
+  "deadlines": {
+    "sales": "1 hour",
+    "workflowManager": "1 hour"
+  },
+  "workflowManagerId": "1"
+}
 ```
 
-## API Endpoints
+The admin app edits this configuration through the protected API.
+
+## API Reference
+
+### Public and OAuth routes
 
 | Method | Route | Purpose |
 |---|---|---|
-| `GET` | `/` | Health check and OAuth entry point. |
-| `GET` | `/app` | Embedded Bitrix24 admin app. |
-| `GET` | `/api/admin/me` | Resolve current admin access status. |
-| `GET` | `/api/admin/workflow-config` | Read workflow configuration and rotation indexes. |
-| `PUT` | `/api/admin/workflow-config` | Save workflow configuration. |
-| `PUT` | `/api/admin/workflow-config/indices` | Save rotation indexes. |
-| `POST` | `/bitrixworkflow/lead/add` | Process new lead events. |
-| `POST` | `/bitrixworkflow/task/comment/add` | Process task comment events. |
-| `POST` | `/bitrixworkflow/lead/change` | Process lead ownership changes. |
+| `GET` | `/` | Health/status response for the integration server. |
+| `GET` | `/auth/callback` | Bitrix OAuth callback. Exchanges authorization code for tokens. |
+| `GET` | `/app` | Embedded admin frontend. |
 
-## Installation
+### Admin API
+
+All admin API routes require Bitrix initialization and administrator access.
+
+| Method | Route | Purpose |
+|---|---|---|
+| `GET` | `/api/admin/me` | Returns access status for the current Bitrix user. |
+| `GET` | `/api/admin/workflow-config` | Returns workflow config plus current rotation indexes. |
+| `PUT` | `/api/admin/workflow-config` | Validates and saves workflow config. |
+| `PUT` | `/api/admin/workflow-config/indices` | Updates rotation indexes. Used for reset/edit operations. |
+
+### Webhook API
+
+| Method | Route | Purpose |
+|---|---|---|
+| `POST` | `/bitrixworkflow/lead/add` | Processes new lead assignment. |
+| `POST` | `/bitrixworkflow/task/comment/add` | Processes task completion and overdue comments. |
+| `POST` | `/bitrixworkflow/lead/change` | Processes responsible-person changes. |
+
+## Admin Access Model
+
+The embedded app is intended for administrator-level CRM access.
+
+Access is granted when either condition is true:
+
+- Bitrix identifies the current user as an administrator.
+- The current user ID appears in `ADMIN_USER_IDS`.
+
+The override list exists because Bitrix admin detection can vary by app context and portal configuration. It gives operations teams a controlled fallback without weakening the default admin-only model.
+
+Non-admin users receive `403 Forbidden` from protected admin endpoints.
+
+## Bitrix24 App Setup
+
+In Bitrix24, register this service as a local/embedded application.
+
+Use these URLs:
+
+| Setting | Value |
+|---|---|
+| Application URL | `https://your-domain.example.com/app` |
+| OAuth callback URL | `https://your-domain.example.com/auth/callback` |
+| Lead add webhook | `https://your-domain.example.com/bitrixworkflow/lead/add` |
+| Task comment webhook | `https://your-domain.example.com/bitrixworkflow/task/comment/add` |
+| Lead change webhook | `https://your-domain.example.com/bitrixworkflow/lead/change` |
+
+Recommended Bitrix scopes:
+
+- CRM access for lead reads and updates.
+- Task access for task creation, lookup, and completion.
+- User access for current-user/admin checks and task assignee lookup.
+
+## Local Development
+
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-## Running Locally
+Run the full production build:
+
+```bash
+npm run build
+```
+
+Start the built server:
 
 ```bash
 npm start
 ```
 
-The server starts from [server.ts](/C:/Users/Usman%20Khan%20-%20PCI/Downloads/Bitrix24LeadWorkFlow-main%20(2)/Bitrix24LeadWorkFlow-main/server.ts) and exposes the webhook routes after Bitrix24 initialization succeeds.
-
-For frontend-only local work:
+During frontend work, run the Vite dev server:
 
 ```bash
 npm run dev:frontend
 ```
 
-The Vite dev server proxies `/api` to `http://localhost:3000`.
+The frontend dev server runs from `frontend/vite.config.ts` and proxies `/api` to `http://localhost:3000`.
 
-## Bitrix24 Embedded App Setup
+## Quality Checks
 
-- Register the app URL as `https://your-host.example.com/app`.
-- Register the OAuth redirect URI as `https://your-host.example.com/auth/callback`.
-- Grant CRM, task, and user access scopes needed by the workflow and admin guard.
-- Add fallback administrators through `ADMIN_USER_IDS` if the portal admin flag is unavailable in your Bitrix environment.
+Run all checks before pushing:
 
-## Known Gaps In The Current Codebase
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
 
-The current implementation is functional as a proof of concept, but it still carries a few operational and architectural constraints:
+What each command verifies:
 
-- Workflow configuration still uses local JSON storage.
-- State is stored locally through helper-managed files instead of a centralized datastore.
-- Admin access depends on Bitrix user context plus the optional override list.
+| Command | Purpose |
+|---|---|
+| `npm run typecheck` | Strict TypeScript pass without emitting files. |
+| `npm run lint` | ESLint pass for TypeScript and frontend code. |
+| `npm test` | Node test runner for workflow and access logic. |
+| `npm run build` | Builds the Express server and Vite frontend. |
 
-## Recommended Improvement Roadmap
+Current tests cover:
 
-Your consolidated suggestions fit well as the next professional roadmap for this project.
+- Source-based lead routing.
+- Overdue reassignment vs manager escalation.
+- Admin access decisions.
+- Workflow config validation.
 
-### 1. Upgrade the Bitrix24 integration layer
+## Deployment Notes
 
-Standardize the integration around the Bitrix24 V2 JavaScript SDK, `@bitrix24/b24jssdk`, and use it consistently across authentication and REST calls. This will help with:
+Build output is split by runtime:
 
-- REST API 3.0 compatibility.
-- More consistent response handling.
-- Cleaner helper abstractions.
-- Easier long-term maintenance.
+- Server output: `dist/`
+- Frontend output: `frontend/dist/`
 
-### 2. Migrate the codebase from JavaScript to TypeScript
+The server serves `frontend/dist` at `/app` when that directory exists, so production deployments should run:
 
-Move controllers, helpers, and configuration modules to TypeScript to improve reliability in workflow logic. This migration should focus on:
+```bash
+npm run build
+npm start
+```
 
-- Typed webhook payloads.
-- Typed Bitrix24 API responses.
-- Safer routing and task-state transitions.
-- Better IDE navigation and refactoring support.
+Make sure the deployment environment has writable `/mnt/data` storage. If the host does not provide durable `/mnt/data`, configure equivalent persistent storage before using the app in production.
 
-### 3. Harden the round-robin assignment logic
+## Operational Workflow
 
-The round-robin process should become resilient under concurrency and reassign overdue work automatically to the next valid representative. This should include:
+1. Deploy the service and configure Bitrix OAuth credentials.
+2. Visit `/` to confirm the service is running.
+3. Authorize the Bitrix app through the generated authorization URL if tokens are not present.
+4. Register `/app` as the embedded app URL in Bitrix24.
+5. Open the app as an administrator.
+6. Configure teams, routing sources, deadlines, and workflow manager ID.
+7. Register Bitrix webhooks for lead add, task comment add, and lead change events.
+8. Verify a test lead routes to the expected queue.
 
-- Atomic queue/index updates.
-- Validation that a user is active and eligible before assignment.
-- Safer reassignment rules when tasks become overdue.
-- Better protection against duplicate or conflicting webhook processing.
+## Design Decisions
 
-### 4. Add a final escalation path
+- The backend remains Express-based to preserve the existing webhook deployment model.
+- The frontend is embedded into the same service to simplify hosting and Bitrix app registration.
+- Configuration is stored in JSON files for compatibility with the current `/mnt/data` deployment pattern.
+- Workflow decisions are extracted into services so they can be tested without live Bitrix calls.
+- The UI manages user IDs directly because Bitrix user lookup/search was outside the first admin-app scope.
 
-When several representatives fail to address the lead within the defined SLA, the workflow should trigger a final manager escalation. This can include:
+## Known Limitations
 
-- Escalation after a configurable number of failed handoffs.
-- Dedicated notification events for managers.
-- Escalation audit history for operational review.
+- Workflow state is file-backed, not database-backed.
+- Round-robin index updates are not yet transactional across multiple server instances.
+- Admin user detection depends on Bitrix current-user context; `ADMIN_USER_IDS` exists as a fallback.
+- The admin UI manages Bitrix user IDs manually rather than searching Bitrix users by name.
+- There is no audit log yet for configuration changes or escalation history.
 
-### 5. Build an admin frontend
+## Recommended Next Improvements
 
-Create a dedicated frontend interface for operational management so administrators can:
-
-- View the active workflow state.
-- Add or remove people from the rotation in real time.
-- Adjust assignments by role or queue.
-- Review overdue leads and escalation history.
-
-## Suggested Delivery Phases
-
-### Phase 1: Stabilize the backend
-
-- Fix current workflow edge cases.
-- Add structured logging and input validation.
-- Normalize Bitrix24 SDK usage.
-
-### Phase 2: Move to TypeScript
-
-- Introduce TypeScript configuration and build tooling.
-- Migrate helpers first, then controllers and routes.
-- Add shared types for webhook payloads and Bitrix entities.
-
-### Phase 3: Introduce durable state
-
-- Move queue, assignment, and audit state to a database.
-- Replace file-based rotation tracking with transactional updates.
-
-### Phase 4: Build the admin UI
-
-- Add authenticated admin screens for queue management.
-- Expose backend endpoints for live workflow configuration.
-
-## Production Recommendations
-
-- Run the service behind a process manager such as `pm2`.
-- Store tokens and workflow state in durable storage instead of local files.
-- Restrict filesystem and environment access because OAuth credentials are sensitive.
-- Add request validation and event signature verification if your Bitrix24 setup allows it.
-- Add automated tests before expanding business rules further.
-
-## Next Best Step
-
-If you want to modernize this repo incrementally, the strongest next move is:
-
-1. Fix current backend edge cases.
-2. Introduce TypeScript.
-3. Replace local state with database-backed workflow storage.
-4. Build the admin frontend on top of that stable backend foundation.
+- Move workflow configuration and indexes into a transactional database.
+- Add an audit trail for admin config changes and lead assignment decisions.
+- Add Bitrix user search/autocomplete in the admin UI.
+- Add request signature verification for incoming Bitrix webhooks if available in the deployment setup.
+- Add integration tests around webhook payloads with mocked Bitrix REST responses.
+- Add richer operational dashboards for overdue leads, failed assignments, and escalation volume.
