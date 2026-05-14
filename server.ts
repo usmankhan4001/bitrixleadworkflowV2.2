@@ -3,7 +3,15 @@ import express, { type NextFunction, type Request, type Response } from "express
 import fs from "fs";
 import path from "path";
 
-import { getAuthorizationUrl, handleOAuthRedirect, hasBitrixOAuthConfig, initB24 } from "./Bitrix24AuthUtils/Bitrix24AuthUtils.js";
+import {
+    getAuthStatus,
+    getAuthorizationUrl,
+    handleInstallationCallback,
+    handleOAuthRedirect,
+    hasBitrixOAuthConfig,
+    initB24,
+    initializeAuthorizedClient,
+} from "./Bitrix24AuthUtils/Bitrix24AuthUtils.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import bitrixRoutes from "./routes/routes.js";
 
@@ -54,7 +62,11 @@ app.get("/", (_req: Request, res: Response) => {
         return res.send("Bitrix24 Integration Server is Running and Authorized.");
     }
 
-    return res.send("Bitrix24 Integration Server is Running but Awaiting Authorization.");
+    return res.send([
+        "Bitrix24 Integration Server is Running but Awaiting Authorization.",
+        `Authorize the app here: ${getAuthorizationUrl()}`,
+        "Check OAuth status at /auth/status",
+    ].join("\n"));
 });
 
 app.post("/", (_req: Request, res: Response) => {
@@ -72,11 +84,35 @@ app.get("/healthz", (_req: Request, res: Response) => {
     });
 });
 
+app.get("/auth/status", async (_req: Request, res: Response) => {
+    return res.status(200).send({
+        ...(await getAuthStatus()),
+        b24Initialized: isB24Initialized,
+    });
+});
+
+app.get("/auth/start", (_req: Request, res: Response) => {
+    return res.redirect(302, getAuthorizationUrl());
+});
+
 if (fs.existsSync(frontendDistPath)) {
     app.use("/app", express.static(frontendDistPath));
     app.all(/^\/app(?:\/.*)?$/, (_req: Request, res: Response) => {
         res.sendFile(path.join(frontendDistPath, "index.html"));
     });
+}
+
+async function completeAuthorization(res: Response, action: () => Promise<void>): Promise<Response> {
+    try {
+        await action();
+        await initializeAuthorizedClient();
+        isB24Initialized = true;
+        return res.send("App authorized! Tokens saved and loaded. You may close this window and reopen the app.");
+    } catch (error) {
+        console.error("Authorization Flow Failed during token exchange:", error);
+        const message = error instanceof Error ? error.message : "Authorization failed during token exchange.";
+        return res.status(500).send(message);
+    }
 }
 
 app.get("/auth/callback", async (req: Request, res: Response) => {
@@ -91,22 +127,28 @@ app.get("/auth/callback", async (req: Request, res: Response) => {
         return res.status(400).send("Authorization code is missing.");
     }
 
-    try {
+    return completeAuthorization(res, async () => {
         console.log("Received authorization code. Exchanging for tokens...");
         await handleOAuthRedirect(code);
+    });
+});
 
-        console.log("App authorized! Tokens saved. Restarting service to load tokens...");
-        res.send("App authorized! Tokens saved. You may close this window. Service is restarting...");
-
-        setImmediate(() => {
-            process.exit(0);
+app.post("/auth/callback", async (req: Request, res: Response) => {
+    if (typeof req.body?.code === "string") {
+        return completeAuthorization(res, async () => {
+            await handleOAuthRedirect(req.body.code as string);
         });
-
-        return;
-    } catch (error) {
-        console.error("Authorization Flow Failed during token exchange:", error);
-        return res.status(500).send("Authorization failed during token exchange.");
     }
+
+    return completeAuthorization(res, async () => {
+        await handleInstallationCallback(req.body as Record<string, unknown>);
+    });
+});
+
+app.post("/auth/install", async (req: Request, res: Response) => {
+    return completeAuthorization(res, async () => {
+        await handleInstallationCallback(req.body as Record<string, unknown>);
+    });
 });
 
 app.use("/api/admin", requireB24ForAdmin, adminRoutes);
