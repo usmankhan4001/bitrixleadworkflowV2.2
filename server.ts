@@ -96,8 +96,7 @@ app.get("/auth/start", (_req: Request, res: Response) => {
 });
 
 if (fs.existsSync(frontendDistPath)) {
-    app.use("/app", express.static(frontendDistPath));
-    app.all(/^\/app(?:\/.*)?$/, (req: Request, res: Response) => {
+    const appShellHandler = (req: Request, res: Response): Response | void => {
         if (
             typeof req.query.code === "string"
             || typeof req.query.error === "string"
@@ -114,7 +113,11 @@ if (fs.existsSync(frontendDistPath)) {
         }
 
         res.sendFile(path.join(frontendDistPath, "index.html"));
-    });
+    };
+
+    app.get("/app", appShellHandler);
+    app.get(/^\/app(?:\/.*)?$/, appShellHandler);
+    app.use("/app", express.static(frontendDistPath));
 }
 
 async function completeAuthorization(res: Response, action: () => Promise<void>): Promise<Response> {
