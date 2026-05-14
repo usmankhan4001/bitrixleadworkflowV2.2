@@ -115,8 +115,8 @@ if (fs.existsSync(frontendDistPath)) {
         res.sendFile(path.join(frontendDistPath, "index.html"));
     };
 
-    app.get("/app", appShellHandler);
-    app.get(/^\/app(?:\/.*)?$/, appShellHandler);
+    app.all("/app", appShellHandler);
+    app.all(/^\/app(?:\/.*)?$/, appShellHandler);
     app.use("/app", express.static(frontendDistPath));
 }
 
