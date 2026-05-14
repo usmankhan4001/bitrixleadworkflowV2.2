@@ -97,7 +97,22 @@ app.get("/auth/start", (_req: Request, res: Response) => {
 
 if (fs.existsSync(frontendDistPath)) {
     app.use("/app", express.static(frontendDistPath));
-    app.all(/^\/app(?:\/.*)?$/, (_req: Request, res: Response) => {
+    app.all(/^\/app(?:\/.*)?$/, (req: Request, res: Response) => {
+        if (
+            typeof req.query.code === "string"
+            || typeof req.query.error === "string"
+            || typeof req.query.error_description === "string"
+        ) {
+            const query = new URLSearchParams();
+            for (const [key, value] of Object.entries(req.query)) {
+                if (typeof value === "string") {
+                    query.set(key, value);
+                }
+            }
+
+            return res.redirect(302, `/auth/callback?${query.toString()}`);
+        }
+
         res.sendFile(path.join(frontendDistPath, "index.html"));
     });
 }
