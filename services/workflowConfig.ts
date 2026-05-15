@@ -1,10 +1,10 @@
 import fs from "fs-extra";
-import path from "path";
 
 import type { EntityId, WorkflowAssignmentDepartment, WorkflowConfig, WorkflowConfigView, WorkflowStateRecord } from "../types/domain.js";
+import { getDataFilePath } from "./dataPaths.js";
 
-const WORKFLOW_CONFIG_FILE = path.join("/mnt/data", "workflowConfig.json");
-export const SALES_INDEX_FILE = path.join("/mnt/data", "sales_indices.json");
+const WORKFLOW_CONFIG_FILE_NAME = "workflowConfig.json";
+const SALES_INDEX_FILE_NAME = "sales_indices.json";
 
 export const DEFAULT_WORKFLOW_CONFIG: WorkflowConfig = {
     teams: [
@@ -108,8 +108,9 @@ function createDefaultIndices(config: WorkflowConfig): WorkflowStateRecord<numbe
 }
 
 export async function loadRoundRobinIndices(config: WorkflowConfig): Promise<WorkflowStateRecord<number>> {
-    if (await fs.pathExists(SALES_INDEX_FILE)) {
-        const storedIndices = await fs.readJson(SALES_INDEX_FILE) as Partial<WorkflowStateRecord<number>>;
+    const salesIndexFile = await getDataFilePath(SALES_INDEX_FILE_NAME);
+    if (await fs.pathExists(salesIndexFile)) {
+        const storedIndices = await fs.readJson(salesIndexFile) as Partial<WorkflowStateRecord<number>>;
         const mergedIndices = createDefaultIndices(config);
         for (const [department, index] of Object.entries(storedIndices)) {
             mergedIndices[department] = index ?? 0;
@@ -118,17 +119,18 @@ export async function loadRoundRobinIndices(config: WorkflowConfig): Promise<Wor
     }
 
     const defaultIndices = createDefaultIndices(config);
-    await fs.outputJson(SALES_INDEX_FILE, defaultIndices, { spaces: 2 });
+    await fs.outputJson(salesIndexFile, defaultIndices, { spaces: 2 });
     return defaultIndices;
 }
 
 export async function saveRoundRobinIndices(indices: WorkflowStateRecord<number>): Promise<void> {
-    await fs.outputJson(SALES_INDEX_FILE, indices, { spaces: 2 });
+    await fs.outputJson(await getDataFilePath(SALES_INDEX_FILE_NAME), indices, { spaces: 2 });
 }
 
 export async function loadWorkflowConfig(): Promise<WorkflowConfig> {
-    if (await fs.pathExists(WORKFLOW_CONFIG_FILE)) {
-        const storedConfig = await fs.readJson(WORKFLOW_CONFIG_FILE) as WorkflowConfig;
+    const workflowConfigFile = await getDataFilePath(WORKFLOW_CONFIG_FILE_NAME);
+    if (await fs.pathExists(workflowConfigFile)) {
+        const storedConfig = await fs.readJson(workflowConfigFile) as WorkflowConfig;
         return validateWorkflowConfig({
             ...DEFAULT_WORKFLOW_CONFIG,
             ...storedConfig,
@@ -144,13 +146,13 @@ export async function loadWorkflowConfig(): Promise<WorkflowConfig> {
     }
 
     const defaultConfig = validateWorkflowConfig(DEFAULT_WORKFLOW_CONFIG);
-    await fs.outputJson(WORKFLOW_CONFIG_FILE, defaultConfig, { spaces: 2 });
+    await fs.outputJson(workflowConfigFile, defaultConfig, { spaces: 2 });
     return defaultConfig;
 }
 
 export async function saveWorkflowConfig(config: WorkflowConfig): Promise<WorkflowConfigView> {
     const validatedConfig = validateWorkflowConfig(config);
-    await fs.outputJson(WORKFLOW_CONFIG_FILE, validatedConfig, { spaces: 2 });
+    await fs.outputJson(await getDataFilePath(WORKFLOW_CONFIG_FILE_NAME), validatedConfig, { spaces: 2 });
 
     const currentIndices = await loadRoundRobinIndices(validatedConfig);
     const nextIndices = Object.fromEntries(

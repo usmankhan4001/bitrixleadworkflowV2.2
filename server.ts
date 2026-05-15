@@ -62,6 +62,14 @@ app.get("/", (_req: Request, res: Response) => {
         return res.send("Bitrix24 Integration Server is Running and Authorized.");
     }
 
+    if (!hasBitrixOAuthConfig()) {
+        return res.status(503).send([
+            "Bitrix24 Integration Server is Running but OAuth is not configured.",
+            "Set BITRIX_CLIENT_ID and BITRIX_CLIENT_SECRET, then restart the server.",
+            "Check OAuth status at /auth/status",
+        ].join("\n"));
+    }
+
     return res.send([
         "Bitrix24 Integration Server is Running but Awaiting Authorization.",
         `Authorize the app here: ${getAuthorizationUrl()}`,
@@ -92,6 +100,12 @@ app.get("/auth/status", async (_req: Request, res: Response) => {
 });
 
 app.get("/auth/start", (_req: Request, res: Response) => {
+    if (!hasBitrixOAuthConfig()) {
+        return res.status(503).send({
+            message: "Bitrix OAuth is not configured. Set BITRIX_CLIENT_ID and BITRIX_CLIENT_SECRET before starting authorization.",
+        });
+    }
+
     return res.redirect(302, getAuthorizationUrl());
 });
 

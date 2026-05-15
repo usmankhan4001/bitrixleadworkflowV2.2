@@ -2,7 +2,7 @@ import type { Request, Response } from "express";
 
 import getCommentText from "../Bitrix24Helper/getCommentText.js";
 import getDepartmentByUserId from "../Constants/SalesTeam.js";
-import { addUserToCompleted, getFirstCompletedUser } from "../Bitrix24Helper/handlePersonsWithCompletedTask.js";
+import { addUserToCompleted, getFirstCompletedUser, removeUserFromCompleted } from "../Bitrix24Helper/handlePersonsWithCompletedTask.js";
 import createTask from "../Bitrix24Helper/createTaskForSalesPerson.js";
 import getTaskInfo from "../Bitrix24Helper/getTaskInfo.js";
 import getTaskCountForLead from "../Bitrix24Helper/getTaskCountForLead.js";
@@ -18,6 +18,15 @@ function extractCrmEntityId(relatedEntity: string | string[]): string | null {
     const rawValue = Array.isArray(relatedEntity) ? relatedEntity[0] : relatedEntity;
     const crmEntityId = String(rawValue).split("_")[1];
     return crmEntityId || null;
+}
+
+function normalizeTaskComment(commentText: string): string {
+    return commentText
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\[[^\]]+\]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLowerCase();
 }
 
 export default async function taskCommentAddController(
@@ -60,7 +69,8 @@ export default async function taskCommentAddController(
         const department = await getDepartmentByUserId(responsibleId);
         console.log(`Responsible User's Department (for assignment index management): ${department}`);
 
-        const commentText = String(await getCommentText(Number(taskId), Number(commentId)));
+        const commentText = String(await getCommentText(Number(taskId), Number(commentId)) ?? "");
+        const normalizedCommentText = normalizeTaskComment(commentText);
         console.log("Retrieved comment text:", commentText);
 
         if (!relatedEntity) {
@@ -75,14 +85,14 @@ export default async function taskCommentAddController(
 
         console.log(`Task ${taskId} is CRM-related. Entity: ${relatedEntity}`);
 
-        if (commentText === "Task closed." && taskTitle.includes("Follow up on Lead")) {
+        if (normalizedCommentText.includes("task closed") && taskTitle.includes("Follow up on Lead")) {
             if (department) {
                 console.log(`Comment indicates task ${taskId} is closed. Adding user ${responsibleId} to completed list for department: ${department}`);
                 await addUserToCompleted(department, responsibleId);
             }
 
             await changeTheStageOfLead(crmEntityId, "IN_PROCESS");
-        } else if (commentText.includes("Task is overdue.")) {
+        } else if (normalizedCommentText.includes("task is overdue") || normalizedCommentText.includes("task overdue")) {
             console.warn(`Comment indicates task ${taskId} is overdue. Initiating reassignment.`);
 
             const taskCountForLead = await getTaskCountForLead(crmEntityId);
@@ -97,12 +107,13 @@ export default async function taskCommentAddController(
                 workflowManagerId: workflowManager,
             });
 
-            if (escalationDecision.kind === "reassign-sales") {
+            if (escalationDecision.kind === "reassign-sales" && department) {
                 console.log(`Found next available user for assignment in ${department}: ${escalationDecision.assignedUserId}.`);
 
                 await updateResponsiblePerson(crmEntityId, escalationDecision.assignedUserId);
                 await createTask(crmEntityId, escalationDecision.assignedUserId, workflowConfig.deadlines.sales);
                 await setResponsible(crmEntityId, escalationDecision.assignedUserId);
+                await removeUserFromCompleted(department, escalationDecision.assignedUserId);
             } else {
                 await updateResponsiblePerson(crmEntityId, escalationDecision.assignedUserId);
                 await createTaskForWorkflowManager(crmEntityId, escalationDecision.assignedUserId, workflowConfig.deadlines.workflowManager);

@@ -1,11 +1,11 @@
 import fs from "fs-extra";
-import path from "path";
 
 import type { DepartmentName } from "../Constants/SalesTeam.js";
+import { getDataFilePath } from "../services/dataPaths.js";
 import type { EntityId, WorkflowStateRecord } from "../types/domain.js";
 import { loadWorkflowConfig } from "../services/workflowConfig.js";
 
-const COMPLETED_USERS_FILE = path.join("/mnt/data", "SalesPersonWithCompletedTask.json");
+const COMPLETED_USERS_FILE_NAME = "SalesPersonWithCompletedTask.json";
 
 type CompletedUsersState = WorkflowStateRecord<EntityId[]>;
 
@@ -16,8 +16,9 @@ async function createDefaultCompletedUsers(): Promise<CompletedUsersState> {
 
 async function loadCompletedUsers(): Promise<CompletedUsersState> {
     const defaultUsers = await createDefaultCompletedUsers();
-    if (await fs.pathExists(COMPLETED_USERS_FILE)) {
-        const storedUsers = await fs.readJson(COMPLETED_USERS_FILE) as Partial<CompletedUsersState>;
+    const completedUsersFile = await getDataFilePath(COMPLETED_USERS_FILE_NAME);
+    if (await fs.pathExists(completedUsersFile)) {
+        const storedUsers = await fs.readJson(completedUsersFile) as Partial<CompletedUsersState>;
         const mergedUsers: CompletedUsersState = { ...defaultUsers };
         for (const [department, users] of Object.entries(storedUsers)) {
             mergedUsers[department] = users ?? [];
@@ -25,15 +26,17 @@ async function loadCompletedUsers(): Promise<CompletedUsersState> {
         return mergedUsers;
     }
 
-    await fs.outputJson(COMPLETED_USERS_FILE, defaultUsers, { spaces: 2 });
+    await fs.outputJson(completedUsersFile, defaultUsers, { spaces: 2 });
     return defaultUsers;
 }
 
 export async function addUserToCompleted(department: DepartmentName, value: EntityId): Promise<void> {
     const data = await loadCompletedUsers();
     data[department] ??= [];
-    data[department].push(value);
-    await fs.outputJson(COMPLETED_USERS_FILE, data, { spaces: 2 });
+    if (!data[department].some((currentValue) => String(currentValue) === String(value))) {
+        data[department].push(value);
+    }
+    await fs.outputJson(await getDataFilePath(COMPLETED_USERS_FILE_NAME), data, { spaces: 2 });
 }
 
 export async function getFirstCompletedUser(department: DepartmentName): Promise<EntityId | null> {
@@ -43,6 +46,6 @@ export async function getFirstCompletedUser(department: DepartmentName): Promise
 
 export async function removeUserFromCompleted(department: DepartmentName, value: EntityId): Promise<void> {
     const data = await loadCompletedUsers();
-    data[department] = (data[department] ?? []).filter((currentValue) => currentValue !== value);
-    await fs.outputJson(COMPLETED_USERS_FILE, data, { spaces: 2 });
+    data[department] = (data[department] ?? []).filter((currentValue) => String(currentValue) !== String(value));
+    await fs.outputJson(await getDataFilePath(COMPLETED_USERS_FILE_NAME), data, { spaces: 2 });
 }

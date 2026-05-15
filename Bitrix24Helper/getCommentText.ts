@@ -1,8 +1,9 @@
 import fs from "fs/promises";
 
+import { getDataFilePath } from "../services/dataPaths.js";
 import type { BitrixComment, OAuthStatus, OAuthTokenState } from "../types/bitrix.js";
 
-const TOKEN_PATH = "/mnt/data/b24_tokens.json";
+const TOKEN_FILE_NAME = "b24_tokens.json";
 const OAUTH_TOKEN_URL = "https://oauth.bitrix.info/oauth/token/";
 
 type BitrixHttpErrorResponse = {
@@ -31,7 +32,7 @@ function withOptionalString<T extends object>(
 
 async function getTokenData(): Promise<OAuthTokenState> {
     try {
-        const tokenData = await fs.readFile(TOKEN_PATH, "utf-8");
+        const tokenData = await fs.readFile(await getDataFilePath(TOKEN_FILE_NAME), "utf-8");
         return JSON.parse(tokenData) as OAuthTokenState;
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -42,7 +43,7 @@ async function getTokenData(): Promise<OAuthTokenState> {
 
 async function saveTokenData(tokenData: OAuthTokenState): Promise<void> {
     try {
-        await fs.writeFile(TOKEN_PATH, JSON.stringify(tokenData, null, 2), "utf-8");
+        await fs.writeFile(await getDataFilePath(TOKEN_FILE_NAME), JSON.stringify(tokenData, null, 2), "utf-8");
         console.log("Token data updated successfully.");
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);

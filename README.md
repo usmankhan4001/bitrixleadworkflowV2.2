@@ -172,6 +172,7 @@ The service uses environment variables for OAuth, deployment, and administrator 
 | `BITRIX_CLIENT_ID` | Yes | Bitrix24 local app client/application ID. |
 | `BITRIX_CLIENT_SECRET` | Yes | Bitrix24 local app secret. |
 | `BITRIX_REDIRECT_URI` | Recommended | OAuth callback URL registered in Bitrix24. Defaults to `http://localhost:{PORT}/auth/callback`. |
+| `BITRIX_DATA_DIR` | No | Directory for OAuth tokens and workflow state. Defaults to `/mnt/data`, with a local `data/` fallback if that path is not writable. |
 | `WORKFLOW_MANAGER` | No | Initial workflow manager user ID used when seeding default config. Defaults to `1`. |
 | `ADMIN_USER_IDS` | No | Comma-separated Bitrix user IDs allowed to access admin APIs even if Bitrix admin detection is unavailable. |
 
@@ -182,13 +183,14 @@ PORT=3000
 BITRIX_CLIENT_ID=local.XXXXXXXX
 BITRIX_CLIENT_SECRET=xxxxxxxxxxxxxxxx
 BITRIX_REDIRECT_URI=https://your-domain.example.com/auth/callback
+BITRIX_DATA_DIR=/mnt/data
 WORKFLOW_MANAGER=1
 ADMIN_USER_IDS=1,25
 ```
 
 ## Persisted Workflow State
 
-The project currently stores operational state in `/mnt/data`, matching the existing deployment assumptions.
+The project stores operational state in `BITRIX_DATA_DIR`. By default this is `/mnt/data`, matching the existing deployment assumptions. If that directory is not writable, the app falls back to a local `data/` directory so local development and Windows runs do not split token/config state across different paths.
 
 | File | Purpose |
 |---|---|

@@ -1,12 +1,10 @@
 import fsextra from "fs-extra";
-import path from "path";
 import { B24OAuth } from "@bitrix24/b24jssdk";
 
+import { getDataFilePath } from "../services/dataPaths.js";
 import type { OAuthStatus, OAuthTokenExchangeResponse, OAuthTokenState } from "../types/bitrix.js";
 
 const PORT = process.env.PORT || 3000;
-const DEFAULT_DATA_DIR = "/mnt/data";
-const FALLBACK_DATA_DIR = path.join(process.cwd(), "data");
 const TOKEN_FILE_NAME = "b24_tokens.json";
 
 let b24Instance: B24OAuth | null = null;
@@ -42,27 +40,8 @@ function normalizeOAuthStatus(value: OAuthStatus | undefined): OAuthStatus {
     return value ?? "L";
 }
 
-function getConfiguredDataDir(): string {
-    return process.env.BITRIX_DATA_DIR || DEFAULT_DATA_DIR;
-}
-
-async function getWritableDataDir(): Promise<string> {
-    const candidates = [getConfiguredDataDir(), FALLBACK_DATA_DIR];
-
-    for (const candidate of candidates) {
-        try {
-            await fsextra.ensureDir(candidate);
-            return candidate;
-        } catch {
-            continue;
-        }
-    }
-
-    throw new Error("Unable to create a writable data directory for Bitrix token storage.");
-}
-
 async function getTokenFilePath(): Promise<string> {
-    return path.join(await getWritableDataDir(), TOKEN_FILE_NAME);
+    return getDataFilePath(TOKEN_FILE_NAME);
 }
 
 export function getRedirectUri(): string {

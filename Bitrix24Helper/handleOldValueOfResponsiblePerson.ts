@@ -1,14 +1,15 @@
 import fs from "fs/promises";
 
+import { getDataFilePath } from "../services/dataPaths.js";
 import type { EntityId, WorkflowStateRecord } from "../types/domain.js";
 
-const STORAGE_PATH = "/mnt/data/leadResponsible.json";
+const STORAGE_FILE_NAME = "leadResponsible.json";
 
 type ResponsibleState = WorkflowStateRecord<EntityId>;
 
 async function loadStorage(): Promise<ResponsibleState> {
     try {
-        const data = await fs.readFile(STORAGE_PATH, "utf8");
+        const data = await fs.readFile(await getDataFilePath(STORAGE_FILE_NAME), "utf8");
         return JSON.parse(data) as ResponsibleState;
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
@@ -22,7 +23,7 @@ async function loadStorage(): Promise<ResponsibleState> {
 
 async function saveStorage(storage: ResponsibleState): Promise<void> {
     try {
-        await fs.writeFile(STORAGE_PATH, JSON.stringify(storage, null, 2), "utf8");
+        await fs.writeFile(await getDataFilePath(STORAGE_FILE_NAME), JSON.stringify(storage, null, 2), "utf8");
     } catch (error) {
         console.error("Error saving storage:", error);
     }
